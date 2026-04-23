@@ -2,33 +2,24 @@
 setlocal
 cd /d "%~dp0"
 
-where python >nul 2>nul
-if errorlevel 1 (
-    echo [printer-client] Python is not installed or not on PATH.
-    echo Install Python 3.9+ from https://python.org and try again.
+set PY=python\python.exe
+if not exist "%PY%" (
+    echo [printer-client] Bundled Python missing at %PY%.
+    echo This bundle is broken; re-download from
+    echo   https://github.com/ocpc-camp/eolymp-tools/releases
     pause
     exit /b 1
 )
 
 if not exist .env (
     echo [printer-client] No .env file found. Copy .env.sample to .env
-    echo and fill in your Eolymp credentials and printer name.
+    echo and fill in your Eolymp credentials and printer name, then run
+    echo this script again.
     pause
     exit /b 1
 )
 
-if not exist .deps (
-    echo [printer-client] First run: installing Python dependencies into .deps\ ...
-    python -m pip install --target .deps -r requirements.txt
-    if errorlevel 1 (
-        echo [printer-client] pip install failed.
-        pause
-        exit /b 1
-    )
-)
-
-set PYTHONPATH=%cd%\.deps;%PYTHONPATH%
-python printer.py
+"%PY%" printer.py
 set rc=%errorlevel%
 if not "%rc%"=="0" pause
 exit /b %rc%

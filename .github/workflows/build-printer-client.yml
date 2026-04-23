@@ -34,6 +34,51 @@ jobs:
           Get-ChildItem -Path gsv50_extracted -Recurse -Filter gsprint.exe |
               Select-Object FullName
 
+      - name: Download Python embeddable distribution
+        shell: pwsh
+        env:
+          PY_VER: '3.12.7'
+        run: |
+          $url = "https://www.python.org/ftp/python/$env:PY_VER/python-$env:PY_VER-embed-amd64.zip"
+          Invoke-WebRequest -Uri $url -OutFile python-embed.zip
+          Expand-Archive -Path python-embed.zip -DestinationPath python-embed -Force
+
+          # Embeddable Python ships with a pythonXY._pth that disables
+          # site-packages and import of arbitrary directories. Patch it so
+          # the bundled lib/ directory and "import site" work.
+          $pth = Get-ChildItem -Path python-embed -Filter 'python*._pth' |
+                 Select-Object -First 1
+          if (-not $pth) { throw "python*._pth not found in embed zip" }
+          # The zip stem (e.g. 'python312') is the file name without ._pth.
+          $stem = $pth.BaseName
+          @"
+          $stem.zip
+          .
+          lib
+          import site
+          "@.Trim() | Set-Content -Path $pth.FullName -Encoding ascii
+
+          # Bootstrap pip into the embed (used only at bundle build time).
+          Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile get-pip.py
+          & python-embed\python.exe get-pip.py --no-warn-script-location
+          & python-embed\python.exe -m pip --version
+
+      - name: Pre-install Python dependencies into bundle
+        shell: pwsh
+        run: |
+          # Install all required wheels into a 'lib' folder using the same
+          # embeddable Python that will run on the user's machine. Native
+          # wheels (pywin32) are picked correctly because we run on Windows.
+          & python-embed\python.exe -m pip install `
+              --target python-embed\lib `
+              -r printing/client/bundle/requirements.txt
+          # pywin32 ships its DLLs in pywin32_system32; copy them next to
+          # python.exe so win32api can load them under embeddable Python.
+          if (Test-Path python-embed\lib\pywin32_system32) {
+              Copy-Item python-embed\lib\pywin32_system32\*.dll `
+                        -Destination python-embed\ -Force
+          }
+
       - name: Stage bundle
         shell: pwsh
         run: |
@@ -76,8 +121,11 @@ jobs:
           Copy-Item printing/client/.env.sample           -Destination "$stage/.env.sample"
           Copy-Item printing/client/README.md             -Destination "$stage/README.md"
           Copy-Item printing/client/bundle/run.bat        -Destination "$stage/run.bat"
-          Copy-Item printing/client/bundle/requirements.txt -Destination "$stage/requirements.txt"
           Copy-Item LICENSE                               -Destination "$stage/LICENSE.txt"
+
+          # --- Bundled Python (embeddable distribution + pre-installed deps) ---
+          New-Item -ItemType Directory -Force -Path "$stage/python" | Out-Null
+          Copy-Item -Path "python-embed/*" -Destination "$stage/python/" -Recurse
 
           # --- BUNDLE-NOTES.txt ---
           $notes = @(
@@ -90,8 +138,8 @@ jobs:
             'Contents:',
             '  printer.py, test_room_lookup.py - the Python client (MIT)',
             '  .env.sample                     - copy to .env and edit',
-            '  run.bat                         - launcher (installs deps on first run)',
-            '  requirements.txt                - Python dependencies',
+            '  run.bat                         - one-click launcher',
+            '  python/                         - Python embeddable distro + deps',
             '  vendor/ghostscript/             - Artifex Ghostscript binaries (AGPL)',
             '  vendor/gsprint/gsprint.exe      - from Ghostgum GSview 5.0 (AFPL)',
             '',
