@@ -168,9 +168,23 @@ jobs:
 
       - name: Update rolling "latest" release (push to main)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          # Delete the previous rolling release + tag so the new one
+          # actually points at the current HEAD commit. Without this,
+          # softprops/action-gh-release would refresh the asset but
+          # leave the tag pinned at the first run, and GitHub would
+          # then show "N commits to main since this release".
+          gh release delete latest --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+
+      - name: Publish rolling "latest" release (push to main)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
+          target_commitish: ${{ github.sha }}
           name: Latest build
           prerelease: true
           body: |
