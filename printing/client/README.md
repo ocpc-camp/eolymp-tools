@@ -24,6 +24,26 @@ with `PHYSICAL_PRINTER_ID=1`).
 
 ## Setup
 
+### Quick start (Windows): pre-built USB bundle
+
+The simplest way to run this on a Windows machine in a contest hall is
+to grab the pre-built bundle from the
+[`latest` release](https://github.com/ocpc-camp/eolymp-tools/releases/tag/latest):
+
+1. Download `printer-client-windows.zip` and extract it onto a USB stick
+   or directly onto the teacher's computer.
+2. Make sure Python 3.9+ is installed (https://python.org).
+3. Copy `.env.sample` to `.env` and fill in just the Eolymp credentials
+   and the local printer name. Ghostscript and gsprint are bundled, so
+   you can leave `GHOSTSCRIPT_PATH` and `GSPRINT_PATH` empty.
+4. Double-click `run.bat`. The first run installs the Python
+   dependencies into a local `.deps/` folder; subsequent runs reuse it.
+
+The bundle is rebuilt automatically by GitHub Actions on every push to
+`main`, so the rolling release always reflects the current code.
+
+### Manual setup
+
 ### 1. Configure the Eolymp side
 
 In the Eolymp admin console:

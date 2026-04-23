@@ -1,0 +1,147 @@
+name: Build printer-client bundle
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'printing/client/**'
+      - '.github/workflows/build-printer-client.yml'
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ghostscript via Chocolatey
+        shell: pwsh
+        run: choco install ghostscript --no-progress --yes
+
+      - name: Download gsprint from upstream (Ghostgum GSview 5.0)
+        shell: pwsh
+        run: |
+          $url = 'https://www.ghostgum.com.au/download/gsv50w64.exe'
+          Invoke-WebRequest -Uri $url -OutFile gsv50w64.exe
+          # GSview's installer is a 7-Zip self-extracting archive.
+          7z x gsv50w64.exe -ogsv50_extracted -y | Out-Null
+          Get-ChildItem -Path gsv50_extracted -Recurse -Filter gsprint.exe |
+              Select-Object FullName
+
+      - name: Stage bundle
+        shell: pwsh
+        run: |
+          $stage = "stage/printer-client"
+          New-Item -ItemType Directory -Force -Path "$stage/vendor/ghostscript/bin" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage/vendor/gsprint" | Out-Null
+
+          # --- Ghostscript binaries ---
+          $gsRoot = Get-ChildItem -Path "C:\Program Files\gs" -Directory |
+                    Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $gsRoot) {
+              throw "Ghostscript install dir not found under C:\Program Files\gs"
+          }
+          Write-Host "Using Ghostscript from $($gsRoot.FullName)"
+          Copy-Item -Path "$($gsRoot.FullName)\bin\*" `
+                    -Destination "$stage/vendor/ghostscript/bin/" -Recurse
+          if (Test-Path "$($gsRoot.FullName)\LICENSE") {
+              Copy-Item "$($gsRoot.FullName)\LICENSE" `
+                        -Destination "$stage/vendor/ghostscript/LICENSE.txt"
+          }
+
+          # --- gsprint ---
+          $gsprint = Get-ChildItem -Path gsv50_extracted -Recurse -Filter gsprint.exe |
+                     Select-Object -First 1
+          if (-not $gsprint) {
+              throw "gsprint.exe not found in extracted GSview archive"
+          }
+          Copy-Item $gsprint.FullName -Destination "$stage/vendor/gsprint/gsprint.exe"
+          $gsviewLicense = Get-ChildItem -Path gsv50_extracted -Recurse `
+                              -Include 'LICENSE*','COPYING*','*license*.txt' |
+                           Select-Object -First 1
+          if ($gsviewLicense) {
+              Copy-Item $gsviewLicense.FullName `
+                        -Destination "$stage/vendor/gsprint/LICENSE.txt"
+          }
+
+          # --- Python client + helpers (all from repo) ---
+          Copy-Item printing/client/printer.py            -Destination "$stage/printer.py"
+          Copy-Item printing/client/test_room_lookup.py   -Destination "$stage/test_room_lookup.py"
+          Copy-Item printing/client/.env.sample           -Destination "$stage/.env.sample"
+          Copy-Item printing/client/README.md             -Destination "$stage/README.md"
+          Copy-Item printing/client/bundle/run.bat        -Destination "$stage/run.bat"
+          Copy-Item printing/client/bundle/requirements.txt -Destination "$stage/requirements.txt"
+          Copy-Item LICENSE                               -Destination "$stage/LICENSE.txt"
+
+          # --- BUNDLE-NOTES.txt ---
+          $notes = @(
+            'OCPC eolymp-tools printer client - Windows bundle',
+            '==================================================',
+            '',
+            "Built from: $env:GITHUB_REPOSITORY @ $env:GITHUB_SHA",
+            "Build date: $(Get-Date -Format 'yyyy-MM-dd HH:mm UTC')",
+            '',
+            'Contents:',
+            '  printer.py, test_room_lookup.py - the Python client (MIT)',
+            '  .env.sample                     - copy to .env and edit',
+            '  run.bat                         - launcher (installs deps on first run)',
+            '  requirements.txt                - Python dependencies',
+            '  vendor/ghostscript/             - Artifex Ghostscript binaries (AGPL)',
+            '  vendor/gsprint/gsprint.exe      - from Ghostgum GSview 5.0 (AFPL)',
+            '',
+            'See README.md for usage. Re-download a newer build from:',
+            '  https://github.com/ocpc-camp/eolymp-tools/releases'
+          ) -join "`r`n"
+          $notes | Out-File -FilePath "$stage/BUNDLE-NOTES.txt" -Encoding utf8
+
+          Write-Host "--- Bundle contents ---"
+          Get-ChildItem -Recurse $stage | Select-Object FullName, Length
+
+      - name: Zip bundle
+        shell: pwsh
+        run: |
+          Compress-Archive -Path stage/printer-client/* `
+                           -DestinationPath printer-client-windows.zip
+          $size = (Get-Item printer-client-windows.zip).Length / 1MB
+          Write-Host ("Bundle size: {0:N2} MB" -f $size)
+
+      - name: Upload as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: printer-client-windows
+          path: printer-client-windows.zip
+          retention-days: 30
+
+      - name: Update rolling "latest" release (push to main)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build
+          prerelease: true
+          body: |
+            **Rolling build of the Windows printer client.**
+
+            Always reflects the current `main` branch.
+
+            - Commit: ${{ github.sha }}
+            - Workflow run: ${{ github.run_id }}
+
+            Download `printer-client-windows.zip` below, extract it,
+            edit `.env`, then double-click `run.bat`.
+
+            See [printing/client/README.md](https://github.com/ocpc-camp/eolymp-tools/blob/main/printing/client/README.md)
+            for details.
+          files: printer-client-windows.zip
+
+      - name: Attach to tagged release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: printer-client-windows.zip

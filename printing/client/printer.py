@@ -19,8 +19,22 @@ from eolymp.community import member_service_pb2, member_pb2
 
 load_dotenv()
 
-GHOSTSCRIPT_PATH = os.getenv("GHOSTSCRIPT_PATH")
-GSPRINT_PATH = os.getenv("GSPRINT_PATH")
+# When this script is shipped as a self-contained "USB bundle" by the
+# build-printer-client GitHub Actions workflow, Ghostscript and gsprint
+# live next to the script in vendor/. Use those as defaults so the
+# operator only has to fill in the Eolymp credentials in .env.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _bundled(*parts):
+    path = os.path.join(SCRIPT_DIR, "vendor", *parts)
+    return path if os.path.exists(path) else None
+
+
+GHOSTSCRIPT_PATH = os.getenv("GHOSTSCRIPT_PATH") \
+    or _bundled("ghostscript", "bin", "gswin64.exe") \
+    or _bundled("ghostscript", "bin", "gswin32.exe")
+GSPRINT_PATH = os.getenv("GSPRINT_PATH") or _bundled("gsprint", "gsprint.exe")
 PHYSICAL_PRINTER_ID = os.getenv("PHYSICAL_PRINTER_ID")
 PHYSICAL_PRINTER_NAME = os.getenv("PHYSICAL_PRINTER_NAME")
 EOLYMP_TOKEN = os.getenv("EOLYMP_TOKEN")

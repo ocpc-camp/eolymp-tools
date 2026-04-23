@@ -1,0 +1,4 @@
+eolymp
+python-dotenv
+requests
+pywin32
