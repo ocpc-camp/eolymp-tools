@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local environment
+.env
+*.env.local
+
+# Working data — never commit real participant data
+credentials.csv
+members.csv
+members_reshaped.csv
+room_*.csv
+*.dat
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
