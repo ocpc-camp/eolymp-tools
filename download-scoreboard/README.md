@@ -23,6 +23,31 @@ The contest length is hard-coded to 18 000 seconds (5 hours) in the
 filter and to 300 in the header (the legacy format uses minutes there);
 edit at the top of the file if you need a different length.
 
+## extract-ghosts.py
+
+Batch wrapper around `download-scoreboard.py`. Enumerates one or more Eolymp
+*spaces* (`ListSpaces` → `ListContests`), keeps the real per-day contests
+(those whose name carries a `Day N`, which drops "Test contest" / "test copy"
+entries), and writes one `.dat` per contest to
+`<out>/<space-key>/day<N>[-sg]-<slug>.dat`. The `-sg` marker is added for
+`[SG]` satellite days so they don't collide with the main-track day of the
+same number.
+
+Needs an org/admin `EOLYMP_TOKEN` (submission reads are not available to
+space-/printer-scoped tokens). It is resumable — existing files are skipped
+unless `--force`.
+
+```
+EOLYMP_TOKEN=... pypy3 extract-ghosts.py --out ~/ocpc/ghosts
+  --spaces ocpc2026w,osijek2025w   # restrict to specific space keys
+  --dry-run                        # list planned files, fetch nothing
+  --force                          # re-extract even if the file exists
+  --window 18000                   # in-contest cutoff seconds (default 5h)
+```
+
+With no `--spaces`, it defaults to every `ocpc*` / `osijek*` camp space the
+token can see.
+
 ## combine_scoreboards.py
 
 Merges two `out.dat` files produced by `download-scoreboard.py` into a
