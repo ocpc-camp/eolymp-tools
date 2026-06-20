@@ -72,7 +72,6 @@ for part in parts.items:
 
 print("Fetching problems...")
 problems = problem_service.ListProblems(problem_service_pb2.ListProblemsInput(
-    contest_id = contest_id,
     offset = 0,
     size = 100
 ))
