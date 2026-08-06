@@ -15,8 +15,10 @@ The following changes need to be made:
 EOLYMP_SPACE should be the short name of the Eolymp space for your event.
 
 EOLYMP_TOKEN should be the access token. Because this script will be running
-through the entire camp, you should create an access key, which you can do
-at https://developer.eolymp.com/. Give it the following scopes:
+through the entire camp, you should create an access key, which you can do at
+<https://accounts.eolymp.com/developer> or in the console under Settings →
+Access keys (the old `developer.eolymp.com` portal is dead). Give it the
+following scopes:
 
 ```
 helpdesk:ticket:read helpdesk:ticket:write judge:contest:read judge:contest:write

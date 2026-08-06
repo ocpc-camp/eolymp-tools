@@ -31,9 +31,24 @@ Most scripts read `EOLYMP_TOKEN` and `EOLYMP_SPACE` from the environment
 (or from a local `.env` file via `python-dotenv`).
 
 For long-running scripts (the Discord pinger, the printer client) you
-should create an **access key** at https://developer.eolymp.com/ and use
-that as `EOLYMP_TOKEN`. For one-shot scripts a regular OAuth token is
-fine, and `scripts/get_token.sh` can fetch one for you.
+should create an **access key** and use that as `EOLYMP_TOKEN`. Access
+keys are made at <https://accounts.eolymp.com/developer>, or in the
+console under **Settings → Access keys** — the old
+`developer.eolymp.com` portal is dead. Keys do not expire on their own
+and carry exactly the scopes you grant, so prefer them for anything
+unattended.
+
+For one-shot scripts a regular OAuth token is fine, and
+`scripts/get_token.sh` can fetch one for you — but those are
+short-lived and often come with no usable refresh, so they are a poor
+fit for long runs. A third option when a key turns out to be
+under-scoped mid-task: the console SPA sends its own
+`Authorization: Bearer etkn-…` on every `api.eolymp.com` call while you
+are logged in, and that token carries all of your scopes.
+
+API reference: <https://eolymp.readme.io/docs/getting-started> (the
+full endpoint list is under `/reference`, and there is an LLM-friendly
+index at `/llms.txt`).
 
 The Eolymp Python SDK is unstable; if a script suddenly returns HTTP 400,
 the first thing to try is `python -m pip install -U eolymp`.
