@@ -5,6 +5,12 @@ physical printer in a classroom. It polls the print job queue of an
 Eolymp printer, downloads each pending job's PDF, and sends it to the
 local printer (using `gsprint` on Windows, `lp` on Linux/macOS).
 
+Alternatively, set `MANUAL_PRINT_MODE=true` to save every requested PDF
+to `MANUAL_PRINT_DIR` for a volunteer. On macOS the client displays a
+notification with sound and opens the PDF in Preview. In this mode it
+never invokes `gsprint` or `lp`; the Eolymp job is marked complete after
+the PDF is saved and the volunteer is notified.
+
 ## How printing works in Eolymp
 
 Eolymp has a single logical "printer" per space, with a queue of pending
@@ -64,6 +70,29 @@ absolute paths to `gswin32.exe` and `gsprint.exe`.
 
 On Linux/macOS the client uses `lp` instead, so no setup is needed
 beyond having CUPS configured for your printer.
+
+#### Authenticated queues (e.g. CityUHK SMB) and the auto→manual fallback
+
+Some campus printers are SMB/AD queues that require a login, so a bare `lp`
+job lands in **"Hold for Authentication"** and never prints. Two ways to cope:
+
+- **Bake the credential into a dedicated queue** so `lp` authenticates silently.
+  For an SMB queue that means a device URI of the form
+  `smb://USER:PASSWORD@server/share` (URL-encode the password). Point
+  `PHYSICAL_PRINTER_NAME` at that queue and set `MANUAL_PRINT_MODE=false`.
+- **Fallback safety net (always on in auto mode):** after `lp`, the client waits
+  up to `AUTO_CONFIRM_TIMEOUT` seconds for the job to drain. If it holds for
+  authentication or the printer is unreachable, that job is cancelled and
+  handed off to the manual Preview flow — so a page prints one way or another.
+
+#### Notifications
+
+Every new job raises a desktop notification (`DESKTOP_NOTIFY`, macOS
+Notification Center / Linux `notify-send`) and, if `WEBHOOK_URL` is set, posts
+to a chat group. The default `WEBHOOK_TYPE=wecom` targets a **WeChat Work
+(WeCom) group robot** — create a group bot in WeCom and paste its webhook URL.
+Consumer WeChat has no official webhook; `slack`, `discord` and `telegram`
+formats are also supported.
 
 ### 3. Install Python dependencies
 

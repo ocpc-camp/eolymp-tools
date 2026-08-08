@@ -3,7 +3,9 @@ import ssl
 from urllib import request
 from time import sleep
 import os
+import re
 import shutil
+import subprocess
 import traceback
 import datetime
 import requests
@@ -40,6 +42,23 @@ PHYSICAL_PRINTER_NAME = os.getenv("PHYSICAL_PRINTER_NAME")
 EOLYMP_TOKEN = os.getenv("EOLYMP_TOKEN")
 EOLYMP_SPACE = os.getenv("EOLYMP_SPACE")
 EOLYMP_PRINTER_ID = os.getenv("EOLYMP_PRINTER_ID")
+MANUAL_PRINT_MODE = os.getenv("MANUAL_PRINT_MODE", "false").lower() in ("1", "true", "yes")
+MANUAL_PRINT_DIR = os.path.expanduser(
+    os.getenv("MANUAL_PRINT_DIR", "~/Desktop/OCPC Print Requests")
+)
+MANUAL_PRINT_OPEN = os.getenv("MANUAL_PRINT_OPEN", "true").lower() in ("1", "true", "yes")
+# Auto-print (non-manual) confirmation: after `lp`, wait this long for the job
+# to actually drain. If it holds for authentication / the printer is
+# unreachable, we cancel it and fall back to the manual handoff for that job.
+AUTO_CONFIRM_TIMEOUT = int(os.getenv("AUTO_CONFIRM_TIMEOUT", "20"))
+AUTO_CONFIRM_POLL = int(os.getenv("AUTO_CONFIRM_POLL", "2"))
+# Notify on every new print job: desktop tray + optional chat webhook.
+DESKTOP_NOTIFY = os.getenv("DESKTOP_NOTIFY", "true").lower() in ("1", "true", "yes")
+# Chat webhook. Default format targets a WeChat Work (WeCom) group robot; set
+# WEBHOOK_TYPE=slack|discord|telegram to retarget. Empty = disabled.
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").strip()
+WEBHOOK_TYPE = os.getenv("WEBHOOK_TYPE", "wecom").strip().lower()
+WEBHOOK_CHAT_ID = os.getenv("WEBHOOK_CHAT_ID", "").strip()  # telegram only
 
 client = HttpClient(token=EOLYMP_TOKEN)
 space_service = SpaceServiceClient(client)
@@ -50,6 +69,9 @@ print(f"[DEBUG] Space URL: {lookup.space.url}")
 print(f"[DEBUG] Printer ID: {EOLYMP_PRINTER_ID}")
 print(f"[DEBUG] Physical Printer ID: {PHYSICAL_PRINTER_ID}")
 print(f"[DEBUG] Physical Printer Name: {PHYSICAL_PRINTER_NAME}")
+if MANUAL_PRINT_MODE:
+    print(f"[INFO] Manual print mode enabled: saving requests to {MANUAL_PRINT_DIR}")
+    print("[INFO] Jobs will NOT be sent to a printer")
 
 printer_service = PrinterServiceClient(client, lookup.space.url)
 member_service = MemberServiceClient(client, lookup.space.url)
@@ -129,8 +151,11 @@ def print_file(filename):
                     print(f"[ERROR] os.startfile print failed: {e}")
                     return False
         else:
-            import subprocess
-            result = subprocess.run(["lp", filename], capture_output=True, text=True)
+            command = ["lp"]
+            if PHYSICAL_PRINTER_NAME:
+                command.extend(["-d", PHYSICAL_PRINTER_NAME])
+            command.append(filename)
+            result = subprocess.run(command, capture_output=True, text=True)
             print(f"[DEBUG] lp stdout: {result.stdout.strip()}")
             if result.returncode != 0:
                 print(f"[ERROR] lp failed with code {result.returncode}: {result.stderr.strip()}")
@@ -139,6 +164,177 @@ def print_file(filename):
             return True
     except Exception as e:
         print(f"[ERROR] Exception while sending to printer: {e}")
+        return False
+
+
+def _job_id_from_lp(stdout):
+    """Parse 'request id is <queue>-<n> (1 file(s))' from lp's output."""
+    m = re.search(r"request id is (\S+)", stdout or "")
+    return m.group(1) if m else None
+
+
+def _job_still_queued(job_id):
+    """True while the job is still pending/held/processing (not yet completed).
+
+    `lpstat -o` takes a DESTINATION, not a job id, so query the queue and match
+    the job id in the first column of each line.
+    """
+    result = subprocess.run(
+        ["lpstat", "-W", "not-completed", "-o", PHYSICAL_PRINTER_NAME],
+        capture_output=True, text=True,
+    )
+    return any(line.split()[:1] == [job_id] for line in result.stdout.splitlines())
+
+
+def _job_held_for_auth():
+    """True if the queue currently reports a held-for-authentication job."""
+    result = subprocess.run(
+        ["lpstat", "-l", "-o", PHYSICAL_PRINTER_NAME],
+        capture_output=True, text=True,
+    )
+    text = (result.stdout + result.stderr).lower()
+    return "held for authentication" in text or "cups-held-for-authentication" in text
+
+
+def submit_and_confirm(filename):
+    """`lp` the file, then confirm it actually drained off the queue.
+
+    Returns (status, job_id) where status is one of 'printed', 'held', 'stuck',
+    'error'. Anything other than 'printed' means the caller should fall back to
+    the manual handoff. Uses only lp/lpstat, so it is identical on macOS/Linux.
+    """
+    command = ["lp"]
+    if PHYSICAL_PRINTER_NAME:
+        command.extend(["-d", PHYSICAL_PRINTER_NAME])
+    command.append(filename)
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"[ERROR] lp failed with code {result.returncode}: {result.stderr.strip()}")
+        return "error", None
+
+    job_id = _job_id_from_lp(result.stdout)
+    print(f"[DEBUG] lp submitted job {job_id}")
+    if not job_id:
+        return "printed", None  # can't track it; assume it went through
+
+    for _ in range(max(1, AUTO_CONFIRM_TIMEOUT // max(1, AUTO_CONFIRM_POLL))):
+        if not _job_still_queued(job_id):
+            return "printed", job_id
+        if _job_held_for_auth():
+            return "held", job_id
+        sleep(AUTO_CONFIRM_POLL)
+    return "stuck", job_id
+
+
+def validate_pdf(filename):
+    """Perform a quick integrity check before handing a PDF to a volunteer."""
+    try:
+        with open(filename, "rb") as file:
+            if file.read(5) != b"%PDF-":
+                print(f"[ERROR] Downloaded file is not a PDF: {filename}")
+                return False
+
+        pdfinfo = shutil.which("pdfinfo")
+        if pdfinfo:
+            result = subprocess.run(
+                [pdfinfo, filename], capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                print(f"[ERROR] Invalid PDF {filename}: {result.stderr.strip()}")
+                return False
+        return True
+    except Exception as error:
+        print(f"[ERROR] Could not validate PDF {filename}: {error}")
+        return False
+
+
+def desktop_notification(title, message):
+    """Post to the OS notification tray (macOS Notification Center / Linux)."""
+    import platform
+    try:
+        if platform.system() == "Darwin":
+            subprocess.run(
+                ["osascript",
+                 "-e", "on run argv",
+                 "-e", 'display notification (item 1 of argv) with title (item 2 of argv) sound name "Glass"',
+                 "-e", "end run",
+                 "--", message, title],
+                capture_output=True, text=True,
+            )
+        elif shutil.which("notify-send"):
+            subprocess.run(["notify-send", title, message], capture_output=True, text=True)
+    except Exception as error:
+        print(f"[WARN] desktop notification failed: {error}")
+
+
+def send_webhook(message):
+    """POST a chat message to WEBHOOK_URL (WeChat Work group robot by default)."""
+    if not WEBHOOK_URL:
+        return
+    try:
+        if WEBHOOK_TYPE in ("wecom", "wework", "wechat"):
+            payload = {"msgtype": "text", "text": {"content": message}}
+        elif WEBHOOK_TYPE in ("slack", "discord"):
+            payload = {"text": message} if WEBHOOK_TYPE == "slack" else {"content": message}
+        elif WEBHOOK_TYPE == "telegram":
+            payload = {"chat_id": WEBHOOK_CHAT_ID, "text": message}
+        else:
+            payload = {"text": message}
+        data = json.dumps(payload).encode("utf-8")
+        req = request.Request(
+            WEBHOOK_URL, data=data, headers={"Content-Type": "application/json"})
+        # reuse the module ssl context (their Python has a broken default trust store)
+        with request.urlopen(req, timeout=10, context=ctx) as response:
+            response.read()
+    except Exception as error:
+        print(f"[WARN] webhook post failed: {error}")
+
+
+notified_jobs = set()
+
+
+def announce_new_job(job):
+    """Fire desktop + webhook notifications once per job (both print modes)."""
+    if job.id in notified_jobs:
+        return
+    notified_jobs.add(job.id)
+    room = room_map.get(job.member_id)
+    where = f" (room {room})" if room else ""
+    message = f"New OCPC print request: job {job.id}{where}"
+    if DESKTOP_NOTIFY:
+        desktop_notification("OCPC print request", message)
+    send_webhook(message)
+
+
+def notify_manual_print(filename):
+    """Alert the logged-in macOS user and open the request in Preview."""
+    display_name = os.path.basename(filename)
+    message = f"New Eolymp print request saved as {display_name}. Print it manually from Preview."
+
+    try:
+        notification = subprocess.run(
+            [
+                "osascript",
+                "-e", "on run argv",
+                "-e", 'display notification (item 1 of argv) with title "OCPC print request" sound name "Glass"',
+                "-e", "end run",
+                "--", message,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if notification.returncode != 0:
+            print(f"[WARN] macOS notification failed: {notification.stderr.strip()}")
+
+        if MANUAL_PRINT_OPEN:
+            subprocess.Popen(
+                ["open", "-a", "Preview", filename],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        return True
+    except Exception as error:
+        print(f"[ERROR] Could not notify volunteer: {error}")
         return False
 
 def load_pending_jobs():
@@ -210,12 +406,19 @@ def process_queue():
 
         print(f"[DEBUG] Processing job: {job.id}")
         print(f"[DEBUG]   Document URL: {job.document_url}")
+        announce_new_job(job)
         url = job.document_url
+        if MANUAL_PRINT_MODE:
+            os.makedirs(MANUAL_PRINT_DIR, exist_ok=True)
+            abs_filename = os.path.join(
+                MANUAL_PRINT_DIR, f"OCPC-print-{job.id}.pdf"
+            )
+        else:
+            abs_filename = os.path.abspath(str(job.id) + ".pdf")
+
         req = request.Request(url)
         try:
             with request.urlopen(req) as response:
-                filename = str(job.id) + ".pdf"
-                abs_filename = os.path.abspath(filename)
                 print(f"[DEBUG]   Downloading to: {abs_filename}")
                 with open(abs_filename, "wb") as file:
                     shutil.copyfileobj(response, file)
@@ -223,18 +426,41 @@ def process_queue():
             print(f"[ERROR]   Failed to download file for job {job.id}: {e}")
             continue
 
-        # Extra debug: check file existence right before printing
-        if not os.path.exists(abs_filename):
-            print(f"[ERROR]   File does not exist right before printing: {abs_filename}")
+        if not os.path.exists(abs_filename) or not validate_pdf(abs_filename):
+            print(f"[ERROR]   PDF handoff failed for job {job.id}")
             continue
 
-        print(f"[DEBUG]   Sending to printer: {PHYSICAL_PRINTER_NAME}, file: {abs_filename}")
-        success = print_file(abs_filename)
-        if success:
-            print(f"[DEBUG]   Printed job {job.id}")
+        if MANUAL_PRINT_MODE:
+            success = notify_manual_print(abs_filename)
+            if success:
+                print(f"[INFO]   Saved job {job.id} for manual printing: {abs_filename}")
+            else:
+                print(f"[ERROR]   Failed to notify volunteer for job {job.id}")
         else:
-            print(f"[ERROR]   Failed to print job {job.id}")
-            # Optionally, do not mark as COMPLETE if failed
+            print(f"[DEBUG]   Sending to printer: {PHYSICAL_PRINTER_NAME}, file: {abs_filename}")
+            status, phys_job = submit_and_confirm(abs_filename)
+            if status == "printed":
+                success = True
+                print(f"[DEBUG]   Printed job {job.id}")
+            else:
+                # Auto-print did not go through (held for auth / unreachable /
+                # stuck). Cancel the stalled job and fall back to the manual
+                # Preview handoff so the page still gets printed by a volunteer.
+                print(f"[WARN]   Auto-print {status} for job {job.id}; "
+                      f"falling back to manual handoff")
+                if phys_job:
+                    subprocess.run(["cancel", phys_job], capture_output=True, text=True)
+                manual_path = os.path.join(MANUAL_PRINT_DIR, f"OCPC-print-{job.id}.pdf")
+                try:
+                    os.makedirs(MANUAL_PRINT_DIR, exist_ok=True)
+                    if os.path.abspath(manual_path) != os.path.abspath(abs_filename):
+                        shutil.copyfile(abs_filename, manual_path)
+                    success = notify_manual_print(manual_path)
+                except Exception as error:
+                    print(f"[ERROR]   Manual fallback failed for job {job.id}: {error}")
+                    success = False
+
+        if not success:
             continue
 
         job.status = printer_job_pb2.Job.COMPLETE
@@ -244,7 +470,10 @@ def process_queue():
             job = job
         ))
 
-        print(f"[DEBUG] Marked job {job.id} as COMPLETE")
+        if MANUAL_PRINT_MODE:
+            print(f"[INFO] Marked job {job.id} as COMPLETE after manual handoff")
+        else:
+            print(f"[DEBUG] Marked job {job.id} as COMPLETE")
 
 
 print("[DEBUG] Starting printer client...")
