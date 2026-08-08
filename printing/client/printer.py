@@ -52,13 +52,14 @@ MANUAL_PRINT_OPEN = os.getenv("MANUAL_PRINT_OPEN", "true").lower() in ("1", "tru
 # unreachable, we cancel it and fall back to the manual handoff for that job.
 AUTO_CONFIRM_TIMEOUT = int(os.getenv("AUTO_CONFIRM_TIMEOUT", "20"))
 AUTO_CONFIRM_POLL = int(os.getenv("AUTO_CONFIRM_POLL", "2"))
-# Notify on every new print job: desktop tray + optional chat webhook.
+# Alert on every new print job: desktop tray + an attention sound. The helper
+# still has to release each batch at the printer with their ID card / Mobile ID,
+# so the point of the alert is to summon them.
 DESKTOP_NOTIFY = os.getenv("DESKTOP_NOTIFY", "true").lower() in ("1", "true", "yes")
-# Chat webhook. Default format targets a WeChat Work (WeCom) group robot; set
-# WEBHOOK_TYPE=slack|discord|telegram to retarget. Empty = disabled.
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").strip()
-WEBHOOK_TYPE = os.getenv("WEBHOOK_TYPE", "wecom").strip().lower()
-WEBHOOK_CHAT_ID = os.getenv("WEBHOOK_CHAT_ID", "").strip()  # telegram only
+# macOS system sound name (see /System/Library/Sounds), repeated a few times so
+# it carries across the room. Empty = silent.
+NOTIFY_SOUND = os.getenv("NOTIFY_SOUND", "Sosumi")
+NOTIFY_SOUND_REPEAT = int(os.getenv("NOTIFY_SOUND_REPEAT", "3"))
 
 client = HttpClient(token=EOLYMP_TOKEN)
 space_service = SpaceServiceClient(client)
@@ -256,7 +257,7 @@ def desktop_notification(title, message):
             subprocess.run(
                 ["osascript",
                  "-e", "on run argv",
-                 "-e", 'display notification (item 1 of argv) with title (item 2 of argv) sound name "Glass"',
+                 "-e", 'display notification (item 1 of argv) with title (item 2 of argv)',
                  "-e", "end run",
                  "--", message, title],
                 capture_output=True, text=True,
@@ -267,34 +268,36 @@ def desktop_notification(title, message):
         print(f"[WARN] desktop notification failed: {error}")
 
 
-def send_webhook(message):
-    """POST a chat message to WEBHOOK_URL (WeChat Work group robot by default)."""
-    if not WEBHOOK_URL:
+def play_alert_sound():
+    """Play an attention sound (repeated) so a helper across the room notices."""
+    if not NOTIFY_SOUND or not NOTIFY_SOUND.isalnum():
         return
+    import platform
     try:
-        if WEBHOOK_TYPE in ("wecom", "wework", "wechat"):
-            payload = {"msgtype": "text", "text": {"content": message}}
-        elif WEBHOOK_TYPE in ("slack", "discord"):
-            payload = {"text": message} if WEBHOOK_TYPE == "slack" else {"content": message}
-        elif WEBHOOK_TYPE == "telegram":
-            payload = {"chat_id": WEBHOOK_CHAT_ID, "text": message}
+        if platform.system() == "Darwin":
+            path = f"/System/Library/Sounds/{NOTIFY_SOUND}.aiff"
+            subprocess.Popen(
+                ["/bin/sh", "-c",
+                 f'for i in $(seq {int(NOTIFY_SOUND_REPEAT)}); do afplay "{path}"; done'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
         else:
-            payload = {"text": message}
-        data = json.dumps(payload).encode("utf-8")
-        req = request.Request(
-            WEBHOOK_URL, data=data, headers={"Content-Type": "application/json"})
-        # reuse the module ssl context (their Python has a broken default trust store)
-        with request.urlopen(req, timeout=10, context=ctx) as response:
-            response.read()
+            player = shutil.which("paplay") or shutil.which("aplay")
+            if player:
+                subprocess.Popen(
+                    [player, "/usr/share/sounds/alsa/Front_Center.wav"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
     except Exception as error:
-        print(f"[WARN] webhook post failed: {error}")
+        print(f"[WARN] alert sound failed: {error}")
 
 
 notified_jobs = set()
 
 
 def announce_new_job(job):
-    """Fire desktop + webhook notifications once per job (both print modes)."""
+    """Alert helpers once per job (both print modes). They still release the
+    batch at the printer with their ID card / Mobile ID QR."""
     if job.id in notified_jobs:
         return
     notified_jobs.add(job.id)
@@ -303,7 +306,7 @@ def announce_new_job(job):
     message = f"New OCPC print request: job {job.id}{where}"
     if DESKTOP_NOTIFY:
         desktop_notification("OCPC print request", message)
-    send_webhook(message)
+    play_alert_sound()
 
 
 def notify_manual_print(filename):

@@ -85,14 +85,21 @@ job lands in **"Hold for Authentication"** and never prints. Two ways to cope:
   authentication or the printer is unreachable, that job is cancelled and
   handed off to the manual Preview flow — so a page prints one way or another.
 
-#### Notifications
+#### Notifications and secure-release printers
 
 Every new job raises a desktop notification (`DESKTOP_NOTIFY`, macOS
-Notification Center / Linux `notify-send`) and, if `WEBHOOK_URL` is set, posts
-to a chat group. The default `WEBHOOK_TYPE=wecom` targets a **WeChat Work
-(WeCom) group robot** — create a group bot in WeCom and paste its webhook URL.
-Consumer WeChat has no official webhook; `slack`, `discord` and `telegram`
-formats are also supported.
+Notification Center / Linux `notify-send`) and plays an attention sound
+(`NOTIFY_SOUND`, a macOS system sound repeated `NOTIFY_SOUND_REPEAT` times).
+
+This matters on **secure-release / follow-me** printers (e.g. CityUHK quota
+printing): the client only *submits* the job to the central queue — a person
+still has to walk to a release station and tap their **ID card** or scan their
+**Mobile ID QR** to actually print. One tap releases **all** of that account's
+queued jobs, so the practical workflow is: let jobs accumulate, and the
+notification/sound tells a helper when to go release the batch. Jobs left
+unreleased are purged (overnight, at CityUHK). There is no per-job auto-release
+for the quota queue; a badge-free setup would need a dedicated/direct printer
+arranged with the campus IT/print service.
 
 ### 3. Install Python dependencies
 
