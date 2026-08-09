@@ -80,6 +80,15 @@ job lands in **"Hold for Authentication"** and never prints. Two ways to cope:
   For an SMB queue that means a device URI of the form
   `smb://USER:PASSWORD@server/share` (URL-encode the password). Point
   `PHYSICAL_PRINTER_NAME` at that queue and set `MANUAL_PRINT_MODE=false`.
+  Simple and zero-maintenance, but stores the password in CUPS `printers.conf`
+  and breaks if the account password changes.
+- **Use the original `negotiate` (Kerberos) queue with a ticket** — no password
+  stored anywhere. Leave `PHYSICAL_PRINTER_NAME` on the original queue and get a
+  ticket with [`kinit_print.sh`](kinit_print.sh) (it reuses the password already
+  in the login keychain). Then `lp` authenticates via GSSAPI just like the GUI.
+  The catch: the ticket lasts ~10 h, so refresh it (re-run the helper, or let
+  `run_services.sh` do it: `OCPC_KINIT=1 ./run_services.sh`). Needs the KDCs
+  reachable (i.e. on the campus network).
 - **Fallback safety net (always on in auto mode):** after `lp`, the client waits
   up to `AUTO_CONFIRM_TIMEOUT` seconds for the job to drain. If it holds for
   authentication or the printer is unreachable, that job is cancelled and

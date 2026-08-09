@@ -60,6 +60,15 @@ case "${1:-restart}" in
         ;;
     *)  # start | restart
         [ -x "$PY" ] || { echo "ERROR: python not found at $PY (set OCPC_PYTHON)"; exit 1; }
+        # Optional: get a Kerberos ticket first, so the daemon can use the
+        # ORIGINAL negotiate queue (no password stored in CUPS) instead of the
+        # embedded-credential *_auto queue. Run from Terminal.app so the keychain
+        # prompt can appear:  OCPC_KINIT=1 ./run_services.sh
+        if [ -n "${OCPC_KINIT:-}" ]; then
+            echo "obtaining Kerberos ticket for the negotiate queue..."
+            "$ROOT/printing/client/kinit_print.sh" ${OCPC_KRB_PRINCIPAL:+"$OCPC_KRB_PRINCIPAL"} \
+                || { echo "kinit failed — aborting"; exit 1; }
+        fi
         echo "restarting OCPC services..."
         _stop; sleep 1
         _start pinger  "$PINGER_DIR"  "$PINGER_SCRIPT"  "$PINGER_LOG"  "$PINGER_PID"
