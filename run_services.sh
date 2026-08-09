@@ -1,6 +1,6 @@
 #!/bin/bash
 # Start / restart / stop the OCPC laptop services:
-#   - discord/pinger.py         Eolymp tickets -> Discord
+#   - discord/pinger.py           Eolymp tickets -> Discord
 #   - printing/client/printer.py  Eolymp print queue -> physical printer
 #
 # On macOS it also keeps the machine awake (caffeinate) for as long as the
@@ -28,10 +28,13 @@ _alive() { [ -f "$1" ] && kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null; }
 
 _start() {  # label dir script log pidfile
     local label="$1" dir="$2" script="$3" log="$4" pf="$5"
-    ( cd "$dir" && PYTHONUNBUFFERED=1 nohup "$PY" "$script" >"$log" 2>&1 & echo $! >"$pf" )
-    local pid; pid="$(cat "$pf")"
+    # exec inside the subshell so $! is the daemon's REAL pid; </dev/null and
+    # redirected output so it fully detaches (won't hold an ssh session open).
+    ( cd "$dir" && exec env PYTHONUNBUFFERED=1 nohup "$PY" "$script" >"$log" 2>&1 </dev/null ) &
+    local pid=$!
+    echo "$pid" >"$pf"
     if command -v caffeinate >/dev/null 2>&1; then
-        nohup caffeinate $CAFFEINATE_FLAGS -w "$pid" >/dev/null 2>&1 &
+        ( exec nohup caffeinate $CAFFEINATE_FLAGS -w "$pid" >/dev/null 2>&1 </dev/null ) &
     fi
     echo "  $label: started (pid $pid) -> $log"
 }
@@ -41,7 +44,7 @@ _stop() {
         _alive "$pf" && kill "$(cat "$pf")" 2>/dev/null
         rm -f "$pf"
     done
-    # stragglers (daemon argv is the bare script name)
+    # stragglers (e.g. started by hand); daemon argv is the bare script name
     pkill -f 'pinger.py' 2>/dev/null
     pkill -f 'printer.py' 2>/dev/null
 }
