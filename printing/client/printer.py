@@ -52,6 +52,11 @@ MANUAL_PRINT_OPEN = os.getenv("MANUAL_PRINT_OPEN", "true").lower() in ("1", "tru
 # unreachable, we cancel it and fall back to the manual handoff for that job.
 AUTO_CONFIRM_TIMEOUT = int(os.getenv("AUTO_CONFIRM_TIMEOUT", "20"))
 AUTO_CONFIRM_POLL = int(os.getenv("AUTO_CONFIRM_POLL", "2"))
+# Paper size passed to `lp` (-o media=...). Campus secure-release queues can
+# silently drop jobs whose media doesn't match; `lp` otherwise defaults to the
+# PPD's size (often US Letter) while the GUI sends the regional default. CityUHK
+# is A4. Empty = don't set media (use the queue/PPD default).
+PRINT_MEDIA = os.getenv("PRINT_MEDIA", "A4").strip()
 # Alert on every new print job: desktop tray + an attention sound. The helper
 # still has to release each batch at the printer with their ID card / Mobile ID,
 # so the point of the alert is to summon them.
@@ -207,6 +212,8 @@ def submit_and_confirm(filename):
     command = ["lp"]
     if PHYSICAL_PRINTER_NAME:
         command.extend(["-d", PHYSICAL_PRINTER_NAME])
+    if PRINT_MEDIA:
+        command.extend(["-o", f"media={PRINT_MEDIA}"])
     command.append(filename)
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
