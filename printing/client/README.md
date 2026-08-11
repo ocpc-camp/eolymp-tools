@@ -30,6 +30,38 @@ with `PHYSICAL_PRINTER_ID=1`).
 
 ## Setup
 
+### Add another print laptop (macOS)
+
+Everything below is in the repo; per machine you only add the venv, `.env`, and a
+CUPS queue:
+
+```sh
+git clone https://github.com/ocpc-camp/eolymp-tools.git && cd eolymp-tools
+python3 -m venv discord/.venv                      # the venv run_services.sh uses
+discord/.venv/bin/pip install -U eolymp python-dotenv requests
+cp printing/client/.env.sample printing/client/.env   # then edit it (below)
+```
+
+Then, outside the repo:
+
+1. **Add the printer to CUPS** (System Settings → Printers, or `lpadmin`) and note
+   the queue name. For a CityUHK follow-me printer the device is
+   `smb://ccstung1.ad.cityu.edu.hk/csc_quota_queue`; authenticate it either by
+   baking credentials into a dedicated queue or via `kinit` — see *Authenticated
+   queues* below. (Paper size is already forced to A4 by `PRINT_MEDIA`.)
+2. **Edit `printing/client/.env`**: `EOLYMP_TOKEN`, `EOLYMP_SPACE=ocpc`,
+   `EOLYMP_PRINTER_ID`, `PHYSICAL_PRINTER_NAME=<your queue>`,
+   `MANUAL_PRINT_MODE=false`, and `PHYSICAL_PRINTER_ID=<room #>` for per-room
+   routing (jobs for members without a `room` go to `PHYSICAL_PRINTER_ID=1`).
+3. **Run the printer only** (a second pinger would double-post to Discord):
+
+   ```sh
+   OCPC_SERVICES=printer ./run_services.sh
+   ```
+
+Run it from Terminal.app so notification banners work, and keep the laptop
+plugged in with the lid open.
+
 ### Quick start (Windows): pre-built USB bundle
 
 The simplest way to run this on a Windows machine in a contest hall is

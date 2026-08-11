@@ -18,6 +18,10 @@ set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY="${OCPC_PYTHON:-$ROOT/discord/.venv/bin/python}"
 CAFFEINATE_FLAGS="${OCPC_CAFFEINATE_FLAGS:--i -m -s}"  # idle, disk, system sleep
+# Which services to manage. A SECOND print laptop should run the printer only
+# (a second pinger would double-post to Discord):  OCPC_SERVICES=printer ...
+SERVICES="${OCPC_SERVICES:-pinger printer}"
+_want() { case " $SERVICES " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
 PINGER_DIR="$ROOT/discord";           PINGER_SCRIPT="pinger.py"
 PRINTER_DIR="$ROOT/printing/client";  PRINTER_SCRIPT="printer.py"
@@ -39,14 +43,14 @@ _start() {  # label dir script log pidfile
     echo "  $label: started (pid $pid) -> $log"
 }
 
+_stop_svc() {  # pidfile pattern
+    _alive "$1" && kill "$(cat "$1")" 2>/dev/null
+    rm -f "$1"
+    pkill -f "$2" 2>/dev/null  # stragglers; daemon argv is the bare script name
+}
 _stop() {
-    for pf in "$PINGER_PID" "$PRINTER_PID"; do
-        _alive "$pf" && kill "$(cat "$pf")" 2>/dev/null
-        rm -f "$pf"
-    done
-    # stragglers (e.g. started by hand); daemon argv is the bare script name
-    pkill -f 'pinger.py' 2>/dev/null
-    pkill -f 'printer.py' 2>/dev/null
+    _want pinger  && _stop_svc "$PINGER_PID"  'pinger.py'
+    _want printer && _stop_svc "$PRINTER_PID" 'printer.py'
 }
 
 case "${1:-restart}" in
@@ -71,8 +75,8 @@ case "${1:-restart}" in
         fi
         echo "restarting OCPC services..."
         _stop; sleep 1
-        _start pinger  "$PINGER_DIR"  "$PINGER_SCRIPT"  "$PINGER_LOG"  "$PINGER_PID"
-        _start printer "$PRINTER_DIR" "$PRINTER_SCRIPT" "$PRINTER_LOG" "$PRINTER_PID"
+        _want pinger  && _start pinger  "$PINGER_DIR"  "$PINGER_SCRIPT"  "$PINGER_LOG"  "$PINGER_PID"
+        _want printer && _start printer "$PRINTER_DIR" "$PRINTER_SCRIPT" "$PRINTER_LOG" "$PRINTER_PID"
         echo "done. Keep the laptop plugged in with the lid open."
         ;;
 esac
