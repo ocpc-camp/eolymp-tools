@@ -1,0 +1,4 @@
+# Local secrets — never commit
+.env
+print_creds.env
+*_creds.env
