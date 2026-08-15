@@ -115,9 +115,11 @@ job lands in **"Hold for Authentication"** and never prints. Two ways to cope:
   Simple and zero-maintenance, but stores the password in CUPS `printers.conf`
   and breaks if the account password changes. **To create or update that queue
   from one place**, put the login/password in `print_creds.env` (copy from
-  `print_creds.env.sample`; gitignored) and run
-  [`apply_print_creds.sh`](apply_print_creds.sh) — re-run it any time the
-  credentials change.
+  `print_creds.env.sample`; gitignored). `run_services.sh` then syncs the queue
+  to that file automatically on every start — so after changing credentials you
+  just re-run `./run_services.sh` (or run `apply_print_creds.sh` directly). The
+  SMB password can only live in the CUPS queue, not be read per-job by `lp`,
+  which is why this sync step exists.
 - **Use the original `negotiate` (Kerberos) queue with a ticket** — no password
   stored anywhere. Leave `PHYSICAL_PRINTER_NAME` on the original queue and get a
   ticket with [`kinit_print.sh`](kinit_print.sh) (it reuses the password already

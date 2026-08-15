@@ -73,6 +73,14 @@ case "${1:-restart}" in
             "$ROOT/printing/client/kinit_print.sh" ${OCPC_KRB_PRINCIPAL:+"$OCPC_KRB_PRINCIPAL"} \
                 || { echo "kinit failed — aborting"; exit 1; }
         fi
+        # Sync the print queue's embedded credentials from print_creds.env if
+        # present. The SMB password can only live in the CUPS queue (lp has no
+        # flag for it), so changing print_creds.env alone isn't enough — this
+        # writes it into the queue for you. Set OCPC_SKIP_CREDS=1 to skip.
+        if [ -z "${OCPC_SKIP_CREDS:-}" ] && [ -f "$ROOT/printing/client/print_creds.env" ]; then
+            echo "syncing print queue credentials from print_creds.env..."
+            "$ROOT/printing/client/apply_print_creds.sh" || echo "warning: credential sync failed; continuing"
+        fi
         echo "restarting OCPC services..."
         _stop; sleep 1
         _want pinger  && _start pinger  "$PINGER_DIR"  "$PINGER_SCRIPT"  "$PINGER_LOG"  "$PINGER_PID"
