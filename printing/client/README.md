@@ -89,7 +89,8 @@ extracts the actual ZIP, runs the client's imports with its bundled Python,
 checks the Windows native modules, and renders a blank page through bundled
 Ghostscript without sending anything to a printer. A failing check blocks release.
 
-Windows automatic printing uses bundled `gsprint` synchronously; a successful
+Windows automatic printing uses bundled `gsprint` with `-dPDFFitPage` to fit
+the PDF inside the printer driver's hardware margins. It runs synchronously; a successful
 exit confirms submission, not paper delivery. Dispatch regression tests cover
 Windows paths containing spaces, failures, and the Unix CUPS path.
 

@@ -209,7 +209,9 @@ def submit_and_confirm(filename):
     'error', or 'submitted' (Windows spool submission, not physical delivery).
     """
     if os.name == "nt":
-        command = [GSPRINT_PATH, "-ghostscript", GHOSTSCRIPT_PATH]
+        # gsprint supplies the driver's hardware margins to Ghostscript.
+        # Fit the PDF inside those margins instead of clipping at full size.
+        command = [GSPRINT_PATH, "-ghostscript", GHOSTSCRIPT_PATH, "-dPDFFitPage"]
         if PHYSICAL_PRINTER_NAME:
             command.extend(["-printer", PHYSICAL_PRINTER_NAME])
         command.append(filename)

@@ -24,7 +24,7 @@ class DispatchTest(unittest.TestCase):
         filename = r'C:\bundle (1)\job.pdf'
         self.assertEqual(self.env['submit_and_confirm'](filename), ('submitted', None))
         self.run.assert_called_once_with(
-            [self.env['GSPRINT_PATH'], '-ghostscript', self.env['GHOSTSCRIPT_PATH'],
+            [self.env['GSPRINT_PATH'], '-ghostscript', self.env['GHOSTSCRIPT_PATH'], '-dPDFFitPage',
              '-printer', 'MF460 Series', filename], capture_output=True, text=True)
 
     def test_windows_failure_is_not_success(self):
