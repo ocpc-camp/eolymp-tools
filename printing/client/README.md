@@ -62,6 +62,29 @@ Then, outside the repo:
 Run it from Terminal.app so notification banners work, and keep the laptop
 plugged in with the lid open.
 
+### Quick start (Ubuntu Linux): portable bundle
+
+Download `printer-client-linux-x86_64.tar.gz` from the
+[`latest` release](https://github.com/ocpc-camp/eolymp-tools/releases/tag/latest)
+and extract it. This includes Python 3.12 and all Python dependencies: do not
+create a venv, install pip packages, or launch it with the system Python.
+It is intended for x86_64 Ubuntu 20.04 and newer; CI tests the extracted archive
+on Ubuntu 20.04 and 24.04. The printer must already work in Ubuntu's Printers
+settings; the client uses the host CUPS commands (`lp`, `lpstat`, `cancel`, from
+`cups-client`). Printer drivers and the CUPS server remain managed by Ubuntu.
+
+Copy your configured `.env` into the extracted `printer-client-linux` folder.
+For room 2, use `PHYSICAL_PRINTER_ID=2`, retaining the same Eolymp token, space,
+and logical printer ID as room 1. Set `PHYSICAL_PRINTER_NAME` to the Linux queue
+name shown by `lpstat -p`. From a terminal in the extracted folder, run:
+
+```sh
+bash run.sh
+```
+
+Leave that terminal open. `bash run.sh --check` checks the included runtime and
+CUPS command availability without connecting to Eolymp or printing a page.
+
 ### Quick start (Windows): pre-built USB bundle
 
 The simplest way to run this on a Windows machine in a contest hall is

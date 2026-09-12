@@ -219,3 +219,42 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: printer-client-windows.zip
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build portable Linux runtime
+        run: bash printing/client/bundle/build_linux.sh
+      - name: Test extracted archive on Ubuntu 20.04 and 24.04
+        run: |
+          mkdir -p 'relocated bundle'
+          tar -xzf printer-client-linux-x86_64.tar.gz -C 'relocated bundle'
+          test ! -e 'relocated bundle/printer-client-linux/.env'
+          for version in 20.04 24.04; do
+            docker run --rm -v "$PWD:/work" -w /work "ubuntu:$version" bash -ec '
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq cups-client
+              bash "relocated bundle/printer-client-linux/run.sh" --check
+              "relocated bundle/printer-client-linux/python/bin/python3" -I printing/client/bundle/test_dispatch.py
+            '
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: printer-client-linux-x86_64
+          path: printer-client-linux-x86_64.tar.gz
+          retention-days: 30
+
+  publish-linux:
+    # The Windows job recreates the rolling release; attach Linux only afterward.
+    needs: [build, linux]
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: printer-client-linux-x86_64
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || 'latest' }}
+          files: printer-client-linux-x86_64.tar.gz
