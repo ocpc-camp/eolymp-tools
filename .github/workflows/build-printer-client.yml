@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
       - uses: actions/checkout@v4
@@ -61,21 +61,24 @@ jobs:
           # Bootstrap pip into the embed (used only at bundle build time).
           Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile get-pip.py
           & python-embed\python.exe get-pip.py --no-warn-script-location
+          if ($LASTEXITCODE -ne 0) { throw "pip bootstrap failed" }
           & python-embed\python.exe -m pip --version
 
       - name: Pre-install Python dependencies into bundle
         shell: pwsh
         run: |
-          # Install all required wheels into a 'lib' folder using the same
+          # Use site-packages so pywin32.pth is processed by import site.
+          # Install all required wheels using the same
           # embeddable Python that will run on the user's machine. Native
           # wheels (pywin32) are picked correctly because we run on Windows.
           & python-embed\python.exe -m pip install `
-              --target python-embed\lib `
+              --target python-embed\Lib\site-packages `
               -r printing/client/bundle/requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed" }
           # pywin32 ships its DLLs in pywin32_system32; copy them next to
           # python.exe so win32api can load them under embeddable Python.
-          if (Test-Path python-embed\lib\pywin32_system32) {
-              Copy-Item python-embed\lib\pywin32_system32\*.dll `
+          if (Test-Path python-embed\Lib\site-packages\pywin32_system32) {
+              Copy-Item python-embed\Lib\site-packages\pywin32_system32\*.dll `
                         -Destination python-embed\ -Force
           }
 
@@ -158,6 +161,13 @@ jobs:
                            -DestinationPath printer-client-windows.zip
           $size = (Get-Item printer-client-windows.zip).Length / 1MB
           Write-Host ("Bundle size: {0:N2} MB" -f $size)
+
+      - name: Test extracted ZIP with bundled Python
+        shell: pwsh
+        run: |
+          Expand-Archive printer-client-windows.zip -DestinationPath smoke-bundle
+          & smoke-bundle/python/python.exe printing/client/bundle/smoke_test.py smoke-bundle
+          if ($LASTEXITCODE -ne 0) { throw "Extracted bundle smoke test failed" }
 
       - name: Upload as workflow artifact
         uses: actions/upload-artifact@v4

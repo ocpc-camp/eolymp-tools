@@ -1,4 +1,7 @@
-eolymp
+# The SDK does not declare its generated-code runtime dependencies.
+eolymp==0.15.42
+protobuf>=7.35.1,<8
+grpcio>=1.83.0,<2
 python-dotenv
 requests
 pywin32

@@ -80,6 +80,18 @@ to grab the pre-built bundle from the
 The bundle is rebuilt automatically by GitHub Actions on every push to
 `main`, so the rolling release always reflects the current code.
 
+### Bundle validation
+
+The Windows build installs protobuf and gRPC explicitly because the Eolymp SDK
+wheel does not declare these runtime dependencies. Dependencies live in Python's
+`Lib/site-packages` so pywin32's `.pth` file is processed. Before publishing, CI
+extracts the actual ZIP, runs the client's imports with its bundled Python,
+checks the Windows native modules, and renders a blank page through bundled
+Ghostscript without sending anything to a printer. A failing check blocks release.
+
+When updating an existing installation, extract the new ZIP into a fresh folder
+and copy your configured `.env` into it before running `run.bat`.
+
 ### Manual setup
 
 ### 1. Configure the Eolymp side
