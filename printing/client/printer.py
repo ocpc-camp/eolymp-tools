@@ -203,12 +203,27 @@ def _job_held_for_auth():
 
 
 def submit_and_confirm(filename):
-    """`lp` the file, then confirm it actually drained off the queue.
+    """Submit via gsprint on Windows, or submit and track via CUPS elsewhere.
 
     Returns (status, job_id) where status is one of 'printed', 'held', 'stuck',
-    'error'. Anything other than 'printed' means the caller should fall back to
-    the manual handoff. Uses only lp/lpstat, so it is identical on macOS/Linux.
+    'error', or 'submitted' (Windows spool submission, not physical delivery).
     """
+    if os.name == "nt":
+        command = [GSPRINT_PATH, "-ghostscript", GHOSTSCRIPT_PATH]
+        if PHYSICAL_PRINTER_NAME:
+            command.extend(["-printer", PHYSICAL_PRINTER_NAME])
+        command.append(filename)
+        try:
+            result = subprocess.run(command, capture_output=True, text=True)
+        except (OSError, TypeError) as error:
+            print(f"[ERROR] Could not launch bundled gsprint: {error}")
+            return "error", None
+        if result.returncode != 0:
+            print(f"[ERROR] gsprint failed with code {result.returncode}: "
+                  f"{result.stdout.strip()} {result.stderr.strip()}")
+            return "error", None
+        return "submitted", None
+
     command = ["lp"]
     if PHYSICAL_PRINTER_NAME:
         command.extend(["-d", PHYSICAL_PRINTER_NAME])
@@ -449,9 +464,9 @@ def process_queue():
         else:
             print(f"[DEBUG]   Sending to printer: {PHYSICAL_PRINTER_NAME}, file: {abs_filename}")
             status, phys_job = submit_and_confirm(abs_filename)
-            if status == "printed":
+            if status in ("printed", "submitted"):
                 success = True
-                print(f"[DEBUG]   Printed job {job.id}")
+                print(f"[DEBUG]   {status.capitalize()} job {job.id}")
             else:
                 # Auto-print did not go through (held for auth / unreachable /
                 # stuck). Cancel the stalled job and fall back to the manual

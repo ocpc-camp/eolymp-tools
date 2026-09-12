@@ -166,6 +166,8 @@ jobs:
         shell: pwsh
         run: |
           Expand-Archive printer-client-windows.zip -DestinationPath smoke-bundle
+          & smoke-bundle/python/python.exe printing/client/bundle/test_dispatch.py
+          if ($LASTEXITCODE -ne 0) { throw "Print dispatch regression tests failed" }
           & smoke-bundle/python/python.exe printing/client/bundle/smoke_test.py smoke-bundle
           if ($LASTEXITCODE -ne 0) { throw "Extracted bundle smoke test failed" }
 

@@ -89,6 +89,10 @@ extracts the actual ZIP, runs the client's imports with its bundled Python,
 checks the Windows native modules, and renders a blank page through bundled
 Ghostscript without sending anything to a printer. A failing check blocks release.
 
+Windows automatic printing uses bundled `gsprint` synchronously; a successful
+exit confirms submission, not paper delivery. Dispatch regression tests cover
+Windows paths containing spaces, failures, and the Unix CUPS path.
+
 When updating an existing installation, extract the new ZIP into a fresh folder
 and copy your configured `.env` into it before running `run.bat`.
 
